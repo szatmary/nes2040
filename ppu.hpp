@@ -1,15 +1,11 @@
 #pragma once
-#include <cstdint>
 #include <array>
-
-
+#include <cstdint>
 
 class PpuBus {
 public:
     uint16_t address; // addres is multiplexed with data
-    uint8_t data() { return address&0xff; }
-
-
+    uint8_t data() { return address & 0xff; }
 };
 
 // The PPU exposes eight memory-mapped registers to the CPU.
@@ -32,43 +28,13 @@ public:
     // TODO https://www.nesdev.org/wiki/PPU_power_up_state
     std::array<uint8_t, 8> regs;
     // TODO emulate the latch
-    void write(uint16_t addr, uint8_t value)
-    {
-        // addr is realitve to 0x2000
-        switch(addr & 0x07) {
-            case 0:
-                // PPUCTRL
-                break;
-            case 1:
-                // PPUMASK
-                break;
-            case 2:
-                // PPUSTATUS
-                break;
-            case 3:
-                // OAMADDR
-                break;
-            case 4:
-                // OAMDATA
-                break;
-            case 5:
-                // PPUSCROLL
-                break;
-            case 6:
-                // PPUADDR
-                break;
-            case 7:
-                // PPUDATA
-                break;
-        }
-    }
-
 
     // The PPU clock runs 3 tims faster that the CPU clock
     // The are NOT guaranteed to be in sync (CPU tick 0 can be PPU tick 0, 1 or 2)
     // The clock is triggerd
 
-    void clk() {
+    void clk()
+    {
         // The NTSC video signal is made up of 262 scanlines, and 20 of those are spent in vblank state.
         // After the program has received an NMI, it has about 2270 cycles to update the palette, sprites,
         // and nametables as necessary before rendering begins.
@@ -78,6 +44,5 @@ public:
 
         // https://www.nesdev.org/wiki/PPU_frame_timing
         // https://www.nesdev.org/wiki/PPU_rendering
-
     }
 };

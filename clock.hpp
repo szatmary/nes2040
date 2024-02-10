@@ -6,7 +6,6 @@
 #include <thread>
 #include <vector>
 
-
 // https://www.nesdev.org/wiki/Cycle_reference_chart
 class Clock {
 private:

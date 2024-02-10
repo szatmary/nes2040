@@ -36,16 +36,6 @@ public:
         return prgRomBegin() + programRomSize();
     }
 
-    // // TODO view?
-    // std::vector<uint8_t> getProgramRom() const
-    // {
-    //     std::vector<uint8_t> rom;
-    //     for (int i = 0; i < programRomSize(); i++) {
-    //         rom.push_back(data[16 + i]);
-    //     }
-    //     return rom;
-    // }
-
     int characterRomSize() const
     {
         return 8192 * data[5];

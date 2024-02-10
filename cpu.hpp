@@ -553,7 +553,7 @@ public:
         // TODO https://www.nesdev.org/wiki/CPU_power_up_state
         // TODO I think is is the same as a reset?
         // TODO the bus should be clocked of the CPU clock pin, not the global clock
-        microcode.emplace([] { }); // Do one cycle in case the bus got the clock tick first
+        microcode.emplace([] {}); // Do one cycle in case the bus got the clock tick first
         microcode.emplace([&] { bus.addr = 0xfffd, lo = bus.data; });
         microcode.emplace([&] { ProgramCounter = uint16_t(bus.data) << 8 | lo; });
     }
