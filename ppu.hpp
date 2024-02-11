@@ -1,10 +1,17 @@
 #pragma once
+#include "bus.hpp"
 #include <array>
 #include <cstdint>
 
+/*
+................XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX...........
+*/
+
 class PpuBus {
 public:
-    uint16_t address; // addres is multiplexed with data
+    int16_t address; // addres is multiplexed with data (its 14 bit I think?)
+    int16_t latch;
+    void dolatch() { latch = address; }
     uint8_t data() { return address & 0xff; }
 };
 
@@ -22,8 +29,51 @@ public:
 // the latch's current value, as do the unused bits of PPUSTATUS. This value begins to decay
 // after a frame or so, faster once the PPU has warmed up, and it is likely that values with
 // alternating bit patterns (such as $55 or $AA) will decay faster.[2]
-class Ppu {
+class Ppu : public Mem {
+private:
+    int vblank = 1;
+    int spriteZeroHit = 0;
+    int spriteOverflow = 0;
+
 public:
+    virtual uint8_t get(uint16_t addr) override
+    {
+        // PPUCTRL   $2000  VPHB SINN   NMI enable(V), PPU master / slave(P), sprite height(H), background tile select(B), sprite tile select(S), increment mode(I), nametable select(NN)
+        // PPUMASK   $2001 BGRs bMmG color emphasis(BGR), sprite enable(s), background enable(b), sprite left column enable(M), background left column enable(m), greyscale(G)
+        // OAMADDR	 $2003	aaaa aaaa	OAM read/write address
+        // OAMDATA	 $2004	dddd dddd	OAM data read/write
+        // PPUSCROLL $2005	xxxx xxxx	fine scroll position (two writes: X scroll, Y scroll)
+        // PPUADDR   $2006	aaaa aaaa	PPU read/write address (two writes: most significant byte, least significant byte)
+        // PPUDATA	 $2007	dddd dddd	PPU data read/write
+        // OAMDMA	 $4014	aaaa aaaa	OAM DMA high address
+        switch (addr) {
+        // PPUSTATUS $2002 VSO. .... vblank(V), sprite 0 hit(S), sprite overflow(O); read resets write pair for $2005/$2006
+        case 2: {
+            // TODO reset write pair for $2005/$2006
+            auto status = vblank << 7 | spriteZeroHit << 6 | spriteOverflow << 5;
+            vblank = 0; // TODO emulate latch
+            return status;
+        }
+        case 0:
+            return 0;
+        default:
+            return 0; // we should never get here
+        }
+    }
+
+    // bool backgroundPatternTableAddress
+    virtual void set(uint16_t addr, uint8_t value) override
+    {
+        switch (addr) {
+        case 0:
+            std::fprintf(stderr, "PPUCTRL %02x\n", value);
+            break;
+        }
+    }
+
+public:
+    const uint8_t* chrRom = nullptr;
+
     // https://www.nesdev.org/wiki/PPU_registers
     // TODO https://www.nesdev.org/wiki/PPU_power_up_state
     std::array<uint8_t, 8> regs;
@@ -32,9 +82,21 @@ public:
     // The PPU clock runs 3 tims faster that the CPU clock
     // The are NOT guaranteed to be in sync (CPU tick 0 can be PPU tick 0, 1 or 2)
     // The clock is triggerd
-
+    int tick = 0;
     void clk()
     {
+        // The PPU renders 262 scanlines per frame. Each scanline lasts for 341 PPU clock cycles
+        // The VBlank flag of the PPU is set at tick 1 (the second tick) of scanline 241, where the VBlank NMI also occurs.
+        if (tick == 0) {
+            std::fprintf(stderr, "End VBLANK\n");
+            vblank = false;
+        } else if (!vblank && tick == 240 * 341) {
+            std::fprintf(stderr, "Begin VBLANK\n");
+            vblank = true;
+        }
+
+        tick = tick == 262 * 341 ? 0 : tick + 1; // set tick back to zero each frame
+
         // The NTSC video signal is made up of 262 scanlines, and 20 of those are spent in vblank state.
         // After the program has received an NMI, it has about 2270 cycles to update the palette, sprites,
         // and nametables as necessary before rendering begins.
@@ -45,4 +107,6 @@ public:
         // https://www.nesdev.org/wiki/PPU_frame_timing
         // https://www.nesdev.org/wiki/PPU_rendering
     }
+
+public:
 };

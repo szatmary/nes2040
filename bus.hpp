@@ -6,17 +6,40 @@
 
 /*
     https : // www.nesdev.org/wiki/CPU_memory_map
-    0x8000 - 0xffff - 32kB
 */
 
-struct Mem {
-    // Pointers to the underlying memory
-    uint8_t* beg = 0;
-    uint8_t* end = 0;
+class Mem {
+public:
+    virtual ~Mem() = default;
+    virtual void set(uint16_t addr, uint8_t value) = 0;
+    virtual uint8_t get(uint16_t addr) = 0;
+};
 
-    // Offset into the memory map
-    uint16_t oset = 0;
+template <size_t S>
+class Ram : public Mem {
+private:
+    std::array<uint8_t, S> a;
+
+public:
+    virtual ~Ram() override = default;
+    virtual void set(uint16_t addr, uint8_t value) override { a[addr] = value; }
+    virtual uint8_t get(uint16_t addr) override { return a[addr]; }
+};
+
+class PrgRom : public Mem {
+private:
     uint16_t size = 0;
+    const uint8_t* data = 0;
+
+public:
+    virtual ~PrgRom() override = default;
+    PrgRom(const uint8_t* data, uint16_t size)
+        : data(data)
+        , size(size)
+    {
+    }
+    virtual void set(uint16_t addr, uint8_t value) override { }
+    virtual uint8_t get(uint16_t addr) override { return data[addr]; }
 };
 
 // https://www.nesdev.org/wiki/CPU_memory_map
@@ -30,38 +53,44 @@ public:
     uint8_t data = 0;
     bool rw = READ;
 
-    std::array<uint8_t, 2048> ram;
-    std::pair<uint8_t*, uint8_t*> prgRom;
-    // std::pair<uint8_t*, uint8_t*> ppu;
+    // TODO this need to be more generic
+    // probably a vector of memory mapped devices
+    std::shared_ptr<Mem> ram;
+    std::shared_ptr<Mem> prgRom;
+    std::shared_ptr<Mem> ppuMem;
 
-    // TODO this need to be more generic!
     uint8_t read(uint16_t addr)
     {
         if (addr < 0x2000) {
-            std::fprintf(stderr, "Reading from RAM at %04x (%02x)\n", addr, ram[addr & 0x07ff]);
-            return ram[addr & 0x07ff];
+            std::fprintf(stderr, "Reading from RAM at %04x (%02x)\n", addr, ram->get(addr & 0x07ff));
+            return ram->get(addr & 0x07ff);
         }
-        // if (addr >= 0x2000 && addr < 0x4000) {
-        //     std::fprintf(stderr, "Reading from PPU at %04x (%02x)\n", addr, ppu.first[addr - 0x2000]);
-        //     return ppu.first[(addr - 0x2000) & 0x07];
-        // }
+        if (addr >= 0x2000 && addr < 0x4000) {
+            std::fprintf(stderr, "Reading from PPU at %04x (%02x)\n", addr, ppuMem->get((addr - 0x2000) & 0x07));
+            return ppuMem->get((addr - 0x2000) & 0x07);
+        }
         if (addr >= 0x8000) {
-            std::fprintf(stderr, "Reading from CART at %04x (%02x)\n", addr, prgRom.first[addr - 0x8000]);
-            return prgRom.first[addr - 0x8000];
+            // std::fprintf(stderr, "Reading from CART at %04x (%02x)\n", addr, prgRom->get(addr - 0x8000));
+            return prgRom->get(addr - 0x8000);
         }
 
         std::fprintf(stderr, "Reading from unknown at %04x\n", addr);
+        exit(1);
         return 0;
     }
 
     void write(uint16_t addr, uint8_t value)
     {
         if (addr < 0x2000) {
-            ram[addr & 0x07ff] = value;
+            std::fprintf(stderr, "Writing to RAM at %04x (%02x)\n", addr, value);
+            return ram->set(addr & 0x07ff, value);
         }
-        // if (addr >= 0x2000 && addr < 0x4000) {
-        //     ppu.first[(addr - 0x2000) & 0x07] = value;
-        // }
+        if (addr >= 0x2000 && addr < 0x4000) {
+            std::fprintf(stderr, "Writing to PPU at %04x (%02x)\n", addr, value);
+            return ppuMem->set((addr - 0x2000) & 0x07, value);
+        }
+        std::fprintf(stderr, "Writing to unknown at %04x\n", addr);
+        // exit(1);
     }
 
     void clk()

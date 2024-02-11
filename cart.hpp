@@ -1,5 +1,6 @@
 #pragma once
 #include <array>
+#include <cassert>
 #include <cstdint>
 #include <fstream>
 #include <string>
@@ -18,34 +19,37 @@ public:
         if (!file.read((char*)data.data(), data.size())) {
             return false;
         }
+
+        // TODO check mapper
+        assert(1 == data[5]);
         return true;
     }
 
-    int programRomSize() const
+    int prgRomSize() const
     {
         return 16384 * data[4];
     }
 
-    uint8_t* prgRomBegin()
+    const uint8_t* prgRomBegin() const
     {
         return data.data() + 16;
     }
 
-    uint8_t* prgRomEnd()
-    {
-        return prgRomBegin() + programRomSize();
-    }
-
-    int characterRomSize() const
+    int chrRomSize() const
     {
         return 8192 * data[5];
+    }
+
+    const uint8_t* chrRomBegin() const
+    {
+        return prgRomBegin() + prgRomSize();
     }
 
     using tile = std::array<uint8_t, 8 * 8>;
     tile getTile(int x) const
     {
         tile chr;
-        auto o = 16 + programRomSize();
+        auto o = 16 + prgRomSize();
         o += x * 16;
         for (int x = 0; x < 8; x++, o++) {
             chr[x] = (data[o] >> 7 & 1) | (data[o + 8] >> 6 & 2);

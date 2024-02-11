@@ -12,17 +12,25 @@
 
 int main(int argc, char** argv)
 {
-    Bus bus;
     Rom cart;
-    Clock clock;
-
     cart.open(argv[1]);
-    bus.prgRom = { cart.prgRomBegin(), cart.prgRomEnd() };
+
+    Bus bus;
+    auto ppu = std::make_shared<Ppu>();
+    ppu->chrRom = cart.chrRomBegin();
+    bus.ram = std::make_shared<Ram<2048>>();
+    bus.prgRom = std::make_shared<PrgRom>(cart.prgRomBegin(), cart.prgRomSize());
+    bus.ppuMem = ppu;
 
     Cpu cpu(bus);
+
+    Clock clock;
     clock.addDivizor(12, [&]() {
         cpu.clk();
         bus.clk();
+    });
+    clock.addDivizor(4, [&]() {
+        ppu->clk();
     });
 
     clock.run();
