@@ -106,20 +106,18 @@ public:
             // N	Z	C	I	D	V
             // -	-	-	-	-	-
             // addressing	assembler	opc	bytes	cycles
-            // relative	BPL oper	10	2	    2**
+            // relative	BPL oper	    10	2	    2**
             // ** add 1 to cycles if branch occurs on same page
             // ** add 2 to cycles if branch occurs to different page
 
-            static int8_t oper = 0;
-            bus.addr = ProgramCounter++;
-            microcode.emplace([&] { oper = bus.data;});
+            microcode.emplace([&] { bus.addr = ProgramCounter++; });
             if (!getFlag(Negative)) {
-                microcode.emplace([&] { ProgramCounter += oper; });
-                fprintf(stderr, "Branching to %04x\n", ProgramCounter);
+                microcode.emplace([&] { ProgramCounter += int8_t(bus.data); });
                 // if (bus.addr & 0xff00 != ProgramCounter & 0xff00) { // TODO this is almost certainly wrong!
                 //     microcode.emplace([] {}); // add 2 to cycles if branch occurs to different page
                 // }
-            } },
+            }
+            microcode.emplace([&] { bus.addr = ProgramCounter; bus.rw = Bus::READ; }); },
         /* 11 */ [&] { std::fprintf(stderr, "Instruction 11 not implemented\n"); printState(); exit(1); },
         /* 12 */ [&] { std::fprintf(stderr, "Instruction 12 not implemented\n"); printState(); exit(1); },
         /* 13 */ [&] { std::fprintf(stderr, "Instruction 13 not implemented\n"); printState(); exit(1); },
@@ -145,13 +143,13 @@ public:
             // -	-	-	-	-	-
             // addressing	assembler	opc	bytes	cycles
             // absolute	JSR oper	    20	3	    6
-            bus.addr = ProgramCounter++;
             static uint16_t addr = 0;
-            microcode.emplace([&] { bus.addr = ProgramCounter++, addr = bus.data; });
-            microcode.emplace([&] { addr |= uint16_t(bus.data) << 8; });
+            microcode.emplace([&] { bus.addr = ProgramCounter++; });
+            microcode.emplace([&] { addr = bus.data, bus.addr = ProgramCounter++; });
+            microcode.emplace([&] { addr += bus.data << 8; });
             microcode.emplace([&] { bus.addr = stackBase + StackPointer--, bus.data = ProgramCounter, bus.rw = Bus::WRITE; });
             microcode.emplace([&] { bus.addr = stackBase + StackPointer--, bus.data = ProgramCounter >> 8, bus.rw = Bus::WRITE;; });
-            microcode.emplace([&] { ProgramCounter = addr;  bus.rw = Bus::READ;}); },
+            microcode.emplace([&] { bus.addr = ProgramCounter = addr;  bus.rw = Bus::READ;}); },
         /* 21 */ [&] { std::fprintf(stderr, "Instruction 21 not implemented\n"); printState(); exit(1); },
         /* 22 */ [&] { std::fprintf(stderr, "Instruction 22 not implemented\n"); printState(); exit(1); },
         /* 23 */ [&] { std::fprintf(stderr, "Instruction 23 not implemented\n"); printState(); exit(1); },
@@ -228,11 +226,11 @@ public:
             // implied	    RTS	        60	1	    6
             static uint16_t addr = 0;
             microcode.emplace([&] { bus.addr = stackBase + StackPointer++; });
-            microcode.emplace([&] { addr = bus.data, bus.addr = stackBase + StackPointer++; });
-            microcode.emplace([&] { addr |= uint16_t(bus.data) << 8; });
-            microcode.emplace([&] { }); // why?
-            microcode.emplace([&] { ProgramCounter = addr; }); },
-
+            microcode.emplace([&] { addr = bus.data; });
+            microcode.emplace([&] { bus.addr = stackBase + StackPointer++; });
+            microcode.emplace([&] { addr += bus.data << 8; });
+            microcode.emplace([&] { ProgramCounter = addr; });
+            microcode.emplace([&] { bus.addr = ProgramCounter, bus.rw = Bus::READ; }); },
         /* 61 */ [&] { std::fprintf(stderr, "Instruction 61 not implemented\n"); printState(); exit(1); },
         /* 62 */ [&] { std::fprintf(stderr, "Instruction 62 not implemented\n"); printState(); exit(1); },
         /* 63 */ [&] { std::fprintf(stderr, "Instruction 63 not implemented\n"); printState(); exit(1); },
@@ -244,7 +242,7 @@ public:
             // + +	+	-	-	+
             // addressing	assembler	opc	bytes	cycles
             // zeropage	ADC oper	    65	2	    3
-            bus.addr = ProgramCounter++;
+            microcode.emplace([&] { bus.addr = ProgramCounter++; });
             microcode.emplace([&] { bus.addr = bus.data; });
             microcode.emplace([&] {
                 uint16_t temp = Accumulator + bus.data + getFlag(Carry);
@@ -253,6 +251,7 @@ public:
                 setFlag(Negative, temp & 0b10000000);
                 setFlag(Overflow, (Accumulator ^ bus.data) & 0x80 && (Accumulator ^ temp) & 0x80); // TODO double check this!
                 Accumulator = temp & 0xff;
+                bus.addr = ProgramCounter, bus.rw = Bus::READ;
             }); },
         /* 66 */ [&] { std::fprintf(stderr, "Instruction 66 not implemented\n"); printState(); exit(1); },
         /* 67 */ [&] { std::fprintf(stderr, "Instruction 67 not implemented\n"); printState(); exit(1); },
@@ -264,6 +263,7 @@ public:
             // +	+	+	-	-	+
             // addressing	assembler	opc	bytes	cycles
             // immediate	ADC #oper	69	2	    2
+            microcode.emplace([&] { bus.addr = ProgramCounter++; });
             microcode.emplace([&] {
                 uint16_t temp = Accumulator + bus.data + getFlag(Carry);
                 setFlag(Carry, temp > 255);
@@ -271,6 +271,7 @@ public:
                 setFlag(Negative, temp & 0b10000000);
                 setFlag(Overflow, (Accumulator ^ bus.data) & 0x80 && (Accumulator ^ temp) & 0x80); // TODO double check this!
                 Accumulator = temp & 0xff;
+                bus.addr = ProgramCounter; bus.rw = Bus::READ;
             }); },
         /* 6a */ [&] { std::fprintf(stderr, "Instruction 6a not implemented\n"); printState(); exit(1); },
         /* 6b */ [&] { std::fprintf(stderr, "Instruction 6b not implemented\n"); printState(); exit(1); },
@@ -294,7 +295,8 @@ public:
             // -	-	-	1	-	-
             // addressing	assembler	opc	bytes	cycles
             // implied	    SEI	        78	1	    2
-            microcode.emplace([&] { setFlag(InterruptDisable, 1); }); },
+            microcode.emplace([&] { setFlag(InterruptDisable, 1); });
+            microcode.emplace([&] { bus.addr = ProgramCounter; bus.rw = Bus::READ; }); },
         /* 79 */ [&] { std::fprintf(stderr, "Instruction 79 not implemented\n"); printState(); exit(1); },
         /* 7a */ [&] { std::fprintf(stderr, "Instruction 7a not implemented\n"); printState(); exit(1); },
         /* 7b */ [&] { std::fprintf(stderr, "Instruction 7b not implemented\n"); printState(); exit(1); },
@@ -315,9 +317,9 @@ public:
             //  -	-	-	-	-	-
             //  addressing	assembler	opc	bytes	cycles
             //  zeropage	STA oper	85	2	    3
-            bus.addr = ProgramCounter++;
-            microcode.emplace([&] {  });
-            microcode.emplace([&] { bus.addr = bus.data, bus.data = Accumulator, bus.rw = Bus::WRITE; }); },
+            microcode.emplace([&] { bus.addr = ProgramCounter++; });
+            microcode.emplace([&] { bus.addr = bus.data, bus.data = Accumulator, bus.rw = Bus::WRITE; });
+            microcode.emplace([&] { bus.addr = ProgramCounter; bus.rw = Bus::READ; }); },
         /* 86 */ [&] {
             // STX - Store Index X in Memory
             // X -> M
@@ -325,9 +327,9 @@ public:
             // -	-	-	-	-	-
             // addressing	assembler	opc	bytes	cycles
             // zeropage	STX oper	86	2	3
-            bus.addr = ProgramCounter++;
-            microcode.emplace([&] { bus.addr = bus.data; });
-            microcode.emplace([&] { bus.data = Xregister, bus.rw = Bus::WRITE; }); },
+            microcode.emplace([&] { bus.addr = ProgramCounter++; });
+            microcode.emplace([&] { bus.data = Xregister, bus.rw = Bus::WRITE; });
+            microcode.emplace([&] { bus.addr = ProgramCounter; bus.rw = Bus::READ; }); },
         /* 87 */ [&] { std::fprintf(stderr, "Instruction 87 not implemented\n"); printState(); exit(1); },
         /* 88 */ [&] {
             // DEY - Decrement Index Y by One
@@ -340,7 +342,8 @@ public:
                 Yregister--;
                 setFlag(Zero, Yregister == 0);
                 setFlag(Negative, Yregister & 0b10000000);
-            }); },
+            });
+            microcode.emplace([&] { bus.addr = ProgramCounter; bus.rw = Bus::READ; }); },
         /* 89 */ [&] { std::fprintf(stderr, "Instruction 89 not implemented\n"); printState(); exit(1); },
         /* 8a */ [&] { std::fprintf(stderr, "Instruction 8a not implemented\n"); printState(); exit(1); },
         /* 8b */ [&] { std::fprintf(stderr, "Instruction 8b not implemented\n"); printState(); exit(1); },
@@ -351,13 +354,13 @@ public:
             // N	Z	C	I	D	V
             // -	-	-	-	-	-
             // addressing	assembler	opc	bytes	cycles
-            // absolute	STA oper	8D	3	    4
-            bus.addr = ProgramCounter++;
-            static uint16_t addr;
-            microcode.emplace([&] { bus.addr = ProgramCounter++, addr = bus.data; });
-            microcode.emplace([&] { addr |= uint16_t(bus.data)<<8; });
-            microcode.emplace([&] { bus.addr = addr, bus.data = Accumulator, bus.rw = Bus::WRITE; }); },
-        /* 8e */ [&] { std::fprintf(stderr, "Instruction 8e not implemented\n"); printState();    exit(1); },
+            // absolute	    STA oper	8D	3	    4
+            static uint8_t lo = 0;
+            microcode.emplace([&] { bus.addr = ProgramCounter++; });
+            microcode.emplace([&] { lo = bus.data, bus.addr = ProgramCounter++; });
+            microcode.emplace([&] { bus.data = Accumulator, bus.addr = (bus.data << 8) + lo, bus.rw = Bus::WRITE; });
+            microcode.emplace([&] { bus.addr = ProgramCounter; bus.rw = Bus::READ; }); },
+        /* 8e */ [&] { std::fprintf(stderr, "Instruction 8e not implemented\n"); printState(); exit(1); },
         /* 8f */ [&] { std::fprintf(stderr, "Instruction 8f not implemented\n"); printState(); exit(1); },
 
         /* 90 */ [&] { std::fprintf(stderr, "Instruction 90 not implemented\n"); printState(); exit(1); },
@@ -368,13 +371,13 @@ public:
             // -	-	-	-	-	-
             // addressing	assembler	   opc	bytes	cycles
             // (indirect),Y	STA (oper),Y	91	2	    6
-            bus.addr = ProgramCounter++;
             static uint16_t addr = 0;
-            microcode.emplace([&] {addr = bus.data; });
-            microcode.emplace([&] { }); // 2 cycle (add with cary)
+            microcode.emplace([&] { bus.addr = ProgramCounter++; });
+            microcode.emplace([&] { addr = bus.data; });
+            microcode.emplace([&] { }); // 2 cycle (for 16 bit addation?)
             microcode.emplace([&] { addr += uint8_t(Yregister); });
-            microcode.emplace([&] { }); // I dont know why this cycle is needed
-            microcode.emplace([&] { bus.addr = addr, bus.data = Accumulator, bus.rw = Bus::WRITE; }); },
+            microcode.emplace([&] { bus.addr = addr, bus.data = Accumulator, bus.rw = Bus::WRITE; });
+            microcode.emplace([&] { bus.addr = ProgramCounter; bus.rw = Bus::READ; }); },
 
         /* 92 */ [&] { std::fprintf(stderr, "Instruction 92 not implemented\n"); printState(); exit(1); },
         /* 93 */ [&] { std::fprintf(stderr, "Instruction 93 not implemented\n"); printState(); exit(1); },
@@ -391,7 +394,8 @@ public:
             // -	-	-	-	-	-
             // addressing	assembler	opc	bytes	cycles
             // implied	    TXS	        9A	1	    2
-            microcode.emplace([&] { StackPointer = Xregister; }); },
+            microcode.emplace([&] { StackPointer = Xregister; });
+            microcode.emplace([&] { bus.addr = ProgramCounter; }); },
         /* 9b */ [&] { std::fprintf(stderr, "Instruction 9b not implemented\n"); printState(); exit(1); },
         /* 9c */ [&] { std::fprintf(stderr, "Instruction 9c not implemented\n"); printState(); exit(1); },
         /* 9d */ [&] { std::fprintf(stderr, "Instruction 9d not implemented\n"); printState(); exit(1); },
@@ -404,12 +408,13 @@ public:
             // N	Z	C	I	D	V
             // +	+	-	-	-	-
             // addressing	assembler	opc	bytes	cycles
-            // immediate	LDY #oper	A0	2	2
-            bus.addr = ProgramCounter++;
+            // immediate	LDY #oper	A0	2	    2
+            microcode.emplace([&] { bus.addr = ProgramCounter++; });
             microcode.emplace([&] {
                 Yregister = bus.data;
                 setFlag(Zero, Yregister == 0);
                 setFlag(Negative, Yregister & 0b10000000);
+                bus.addr = ProgramCounter;
             }); },
         /* a1 */ [&] { std::fprintf(stderr, "Instruction a1 not implemented\n"); printState(); exit(1); },
         /* a2 */ [&] {
@@ -419,11 +424,12 @@ public:
             // +	+	-	-	-	-
             // addressing      assembler       opc	bytes	cycles
             // immediate       LDX #oper	    A2	2	    2
-            bus.addr = ProgramCounter++;
+            microcode.emplace([&] { bus.addr = ProgramCounter++; });
             microcode.emplace([&] {
                 Xregister = bus.data;
                 setFlag(Zero, Xregister == 0);
                 setFlag(Negative, Xregister & 0b10000000);
+                bus.addr = ProgramCounter;
             }); },
         /* a3 */ [&] { std::fprintf(stderr, "Instruction a3 not implemented\n"); printState(); exit(1); },
         /* a4 */ [&] { std::fprintf(stderr, "Instruction a4 not implemented\n"); printState(); exit(1); },
@@ -438,11 +444,13 @@ public:
             // +	+	-	-	-	-
             // addressing      assembler       opc	bytes	cycles
             // immediate       LDA #oper	    A9	2	    2
-            bus.addr = ProgramCounter++;
+            microcode.emplace([&] { bus.addr = ProgramCounter++; });
             microcode.emplace([&] {
                 Accumulator = bus.data;
                 setFlag(Zero, Accumulator == 0);
                 setFlag(Negative, Accumulator & 0b10000000);
+                bus.addr = ProgramCounter;
+                printState();
             }); },
         /* aa */ [&] { std::fprintf(stderr, "Instruction aa not implemented\n"); printState(); exit(1); },
         /* ab */ [&] { std::fprintf(stderr, "Instruction ab not implemented\n"); printState(); exit(1); },
@@ -454,10 +462,10 @@ public:
             // +	+	-	-	-	-
             // addressing      assembler       opc	bytes	cycles
             // absolute        LDA oper	       AD	3	    4
-            static uint16_t lo = 0;
-            bus.addr = ProgramCounter++;
-            microcode.emplace([&] { bus.addr = ProgramCounter++, lo = bus.data;});
-            microcode.emplace([&] { bus.addr = (bus.data << 8) + lo;});
+            static uint16_t addr = 0;
+            microcode.emplace([&] { bus.addr = ProgramCounter++; });
+            microcode.emplace([&] { addr = bus.data, bus.addr = ProgramCounter++;});
+            microcode.emplace([&] { bus.addr = (bus.data << 8) + addr; });
             microcode.emplace([&] {
                 Accumulator = bus.data;
                 setFlag(Zero, Accumulator == 0);
@@ -476,15 +484,14 @@ public:
             // relative  	BCS oper	B0	2	    2**
             // ** add 1 to cycles if branch occurs on same page
             // ** add 2 to cycles if branch occurs to different page
-            static int8_t oper = 0;
-            bus.addr = ProgramCounter++;
-            microcode.emplace([&] { oper = bus.data;});
+            microcode.emplace([&] { bus.addr = ProgramCounter++; });
             if (getFlag(Carry)) {
-                microcode.emplace([&] { ProgramCounter += oper; });
+                microcode.emplace([&] { ProgramCounter += int8_t(bus.data); });
                 // if (bus.addr & 0xff00 != ProgramCounter & 0xff00) { // TODO this is almost certainly wrong!
                 //     microcode.emplace([] {}); // add 2 to cycles if branch occurs to different page
                 // }
-            } },
+            }
+            microcode.emplace([&] { bus.addr = ProgramCounter; bus.rw = Bus::READ; }); },
         /* b1 */ [&] { std::fprintf(stderr, "Instruction b1 not implemented\n"); printState(); exit(1); },
         /* b2 */ [&] { std::fprintf(stderr, "Instruction b2 not implemented\n"); printState(); exit(1); },
         /* b3 */ [&] { std::fprintf(stderr, "Instruction b3 not implemented\n"); printState(); exit(1); },
@@ -505,15 +512,16 @@ public:
             // addressing      assembler       opc	bytes	cycles
             // absolute,X      LDA oper,X	    BD	3	    4*
             // * add 1 to cycles if page boundary is crossed
-            bus.addr = ProgramCounter++;
-            static uint16_t lo = 0;
-            microcode.emplace([&] { bus.addr = ProgramCounter++, lo = bus.data; });
+            static uint8_t lo = 0;
+            microcode.emplace([&] { bus.addr = ProgramCounter++; });
+            microcode.emplace([&] { lo = bus.data, bus.addr = ProgramCounter++; });
             microcode.emplace([&] { bus.addr = Xregister + (bus.data << 8) + lo; });
             // TODO add 1 to cycles if page boundary is crossed
             microcode.emplace([&] {
                 Accumulator = bus.data;
                 setFlag(Zero, Accumulator == 0);
                 setFlag(Negative, Accumulator & 0b10000000);
+                bus.addr = ProgramCounter;
             }); },
         /* be */ [&] { std::fprintf(stderr, "Instruction be not implemented\n"); printState(); exit(1); },
         /* bf */ [&] { std::fprintf(stderr, "Instruction bf not implemented\n"); printState(); exit(1); },
@@ -525,12 +533,13 @@ public:
             // +	+	+	-	-	-
             // addressing	assembler	opc	bytes	cycles
             // immediate	CPY #oper	C0	2	    2
-            bus.addr = ProgramCounter++;
+            microcode.emplace([&] { bus.addr = ProgramCounter++; });
             microcode.emplace([&] {
                 uint16_t temp = Yregister - bus.data;
                 setFlag(Zero, (temp & 0xff) == 0);
                 setFlag(Negative, temp & 0b10000000);
                 setFlag(Carry, Yregister >= bus.data);
+                bus.addr = ProgramCounter;
             }); },
         /* c1 */ [&] { std::fprintf(stderr, "Instruction c1 not implemented\n"); printState(); exit(1); },
         /* c2 */ [&] { std::fprintf(stderr, "Instruction c2 not implemented\n"); printState(); exit(1); },
@@ -547,12 +556,13 @@ public:
             // +	+	+	-	-	-
             // addressing	assembler	opc	bytes	cycles
             // immediate	CMP #oper	C9	2	2
-            bus.addr = ProgramCounter++;
+            microcode.emplace([&] { bus.addr = ProgramCounter++; });
             microcode.emplace([&] {
                 uint16_t temp = Accumulator - bus.data;
                 setFlag(Zero, (temp & 0xff) == 0);
                 setFlag(Negative, temp & 0b10000000);
                 setFlag(Carry, Accumulator >= bus.data);
+                bus.addr = ProgramCounter;
             }); },
         /* ca */ [&] {
             // DEX - Decrement Index X by One
@@ -565,7 +575,8 @@ public:
                 --Xregister;
                 setFlag(Zero, Xregister == 0);
                 setFlag(Negative, Xregister & 0b10000000);
-            }); },
+            });
+            microcode.emplace([&] { bus.addr = ProgramCounter; }); },
         /* cb */ [&] { std::fprintf(stderr, "Instruction cb not implemented\n"); printState(); exit(1); },
         /* cc */ [&] { std::fprintf(stderr, "Instruction cc not implemented\n"); printState(); exit(1); },
         /* cd */ [&] { std::fprintf(stderr, "Instruction cd not implemented\n"); printState(); exit(1); },
@@ -581,15 +592,14 @@ public:
             // relative	BNE oper	D0	2	2**
             // ** add 1 to cycles if branch occurs on same page
             // ** add 2 to cycles if branch occurs to different page
-            static int8_t addr = 0;
-            bus.addr = ProgramCounter++;
-            microcode.emplace([&] { addr = bus.data; });
+            microcode.emplace([&] { bus.addr = ProgramCounter++; });
             if (getFlag(Zero)) {
-                microcode.emplace([&] { ProgramCounter += addr;});
+                microcode.emplace([&] { ProgramCounter +=  bus.data;}); // signed?
                 // if (bus.addr & 0xff00 != ProgramCounter & 0xff00) { // TODO this is almost certainly wrong!
                 //     microcode.emplace([] {}); // add 2 to cycles if branch occurs to different page
                 // }
-            } },
+            }
+            microcode.emplace([&] { bus.addr = ProgramCounter; }); },
         /* d1 */ [&] { std::fprintf(stderr, "Instruction d1 not implemented\n"); printState(); exit(1); },
         /* d2 */ [&] { std::fprintf(stderr, "Instruction d2 not implemented\n"); printState(); exit(1); },
         /* d3 */ [&] { std::fprintf(stderr, "Instruction d3 not implemented\n"); printState(); exit(1); },
@@ -604,7 +614,8 @@ public:
             // -	-	-	-	0	-
             // addressing	assembler	opc	bytes	cycles
             // implied	    CLD	        D8	1	    2
-            microcode.emplace([&] { setFlag(DecimalMode,0); }); },
+            microcode.emplace([&] { setFlag(DecimalMode, 0); });
+            microcode.emplace([&] { bus.addr = ProgramCounter; }); },
         /* d9 */ [&] { std::fprintf(stderr, "Instruction d9 not implemented\n"); printState(); exit(1); },
         /* da */ [&] { std::fprintf(stderr, "Instruction da not implemented\n"); printState(); exit(1); },
         /* db */ [&] { std::fprintf(stderr, "Instruction db not implemented\n"); printState(); exit(1); },
@@ -620,12 +631,13 @@ public:
             // +	+	+	-	-	-
             // addressing	assembler	opc	bytes	cycles
             // immediate	CPX #oper	E0	2	2
-            bus.addr = ProgramCounter++;
+            microcode.emplace([&] { bus.addr = ProgramCounter++; });
             microcode.emplace([&] {
                 uint16_t temp = Xregister - bus.data;
                 setFlag(Zero, (temp & 0xff) == 0);
                 setFlag(Negative, temp & 0b10000000);
                 setFlag(Carry, Xregister >= bus.data);
+                bus.addr = ProgramCounter;
             }); },
         /* e1 */ [&] { std::fprintf(stderr, "Instruction e1 not implemented\n"); printState(); exit(1); },
         /* e2 */ [&] { std::fprintf(stderr, "Instruction e2 not implemented\n"); printState(); exit(1); },
@@ -644,23 +656,22 @@ public:
         /* ef */ [&] { std::fprintf(stderr, "Instruction ef not implemented\n"); printState(); exit(1); },
 
         /* f0 */ [&] {
-        // BEQ - Branch on Result Zero
-        // branch on Z=1
-        // N	Z	C	I	D	V
-        // -	-	-	-	-	-
-        // addressing	assembler	opc	bytes	cycles
-        // relative	BEQ oper	F0	2	2**
-        // ** add 1 to cycles if branch occurs on same page
-        // ** add 2 to cycles if branch occurs to different page
-        bus.addr = ProgramCounter++;
-        static int8_t addr = 0;
-        microcode.emplace([&] { addr = bus.data; });
-        if (getFlag(Zero)) {
-            microcode.emplace([&] { ProgramCounter += int8_t(addr); });
-            // if (bus.addr & 0xff00 != ProgramCounter & 0xff00) { // TODO this is almost certainly wrong!
-            //     microcode.emplace([] {}); // add 2 to cycles if branch occurs to different page
-            // }
-        } },
+            // BEQ - Branch on Result Zero
+            // branch on Z=1
+            // N	Z	C	I	D	V
+            // -	-	-	-	-	-
+            // addressing	assembler	opc	bytes	cycles
+            // relative	BEQ oper	    F0	2	    2**
+            // ** add 1 to cycles if branch occurs on same page
+            // ** add 2 to cycles if branch occurs to different page
+            microcode.emplace([&] { bus.addr = ProgramCounter++; });
+            if (getFlag(Zero)) {
+                microcode.emplace([&] { ProgramCounter += int8_t(bus.addr); });
+                // if (bus.addr & 0xff00 != ProgramCounter & 0xff00) { // TODO this is almost certainly wrong!
+                //     microcode.emplace([] {}); // add 2 to cycles if branch occurs to different page
+                // }
+            }
+            microcode.emplace([&] { bus.addr = ProgramCounter; }); },
         /* f1 */ [&] { std::fprintf(stderr, "Instruction f1 not implemented\n"); printState(); exit(1); },
         /* f2 */ [&] { std::fprintf(stderr, "Instruction f2 not implemented\n"); printState(); exit(1); },
         /* f3 */ [&] { std::fprintf(stderr, "Instruction f3 not implemented\n"); printState(); exit(1); },
@@ -681,30 +692,25 @@ public:
             // +	+	-	-	-	-
             // addressing	assembler	opc	bytes	cycles
             // absolute,X	INC oper,X	FE	3	    7
-            bus.addr = ProgramCounter++;
             static uint16_t addr = 0;
-            microcode.emplace([&] { bus.addr = ProgramCounter++, addr = bus.data; });
-            microcode.emplace([&] { addr |= uint16_t(bus.data)<<8; });
+            microcode.emplace([&] { bus.addr = ProgramCounter++; });
+            microcode.emplace([&] { addr = bus.data, bus.addr = ProgramCounter++; });
+            microcode.emplace([&] { addr += bus.data << 8; });
             microcode.emplace([&] { addr += Xregister; });
-            microcode.emplace([&] { }); // cant figure out why this takes 7?
             microcode.emplace([&] { bus.data++; });
-            microcode.emplace([&] { bus.addr = addr, bus.rw = Bus::WRITE; }); },
+            microcode.emplace([&] { bus.addr = addr, bus.rw = Bus::WRITE; });
+            microcode.emplace([&] { bus.addr = ProgramCounter, bus.rw = Bus::READ; }); },
         /* ff */ [&] { std::fprintf(stderr, "Instruction ff not implemented\n"); printState(); exit(1); },
     };
 
     void clk()
     {
         if (microcode.empty()) {
-            bus.rw = Bus::READ;
-            bus.addr = ProgramCounter++;
-
-            microcode.emplace([&] {
-                std::fprintf(stderr, "Executing Instruction %02x\n", bus.data);
-                isa[bus.data]();
-            });
+            ProgramCounter++;
+            std::fprintf(stderr, "Executing instruction %02x\n", bus.data);
+            isa[bus.data]();
             return;
         }
-
         microcode.front()();
         microcode.pop();
     }
@@ -716,16 +722,19 @@ public:
     {
         bus.rw = Bus::READ;
         bus.addr = 0xfffc;
-        static uint16_t lo = 0;
         // TODO https://www.nesdev.org/wiki/CPU_power_up_state
         // TODO I think is is the same as a reset?
         // TODO the bus should be clocked of the CPU clock pin, not the global clock
+        static uint16_t addr = 0;
         microcode.emplace([] {}); // Do one cycle in case the bus got the clock tick first
-        microcode.emplace([&] { bus.addr = 0xfffd, lo = bus.data; });
-        microcode.emplace([&] { ProgramCounter = (bus.data << 8) + lo; });
+        microcode.emplace([&] { bus.addr = 0xfffc; });
+        microcode.emplace([&] { addr = bus.data, ++bus.addr; });
+        microcode.emplace([&] { ProgramCounter = (bus.data << 8) + addr; });
+        microcode.emplace([&] { bus.addr = ProgramCounter, bus.rw = Bus::READ; });
     }
 
-    void printState()
+    void
+    printState()
     {
         std::fprintf(stderr, "-----------------------\n");
         std::fprintf(stderr, "Bus Address:    %04x\n", bus.addr);

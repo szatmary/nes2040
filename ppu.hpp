@@ -82,7 +82,7 @@ public:
     // The PPU clock runs 3 tims faster that the CPU clock
     // The are NOT guaranteed to be in sync (CPU tick 0 can be PPU tick 0, 1 or 2)
     // The clock is triggerd
-    int tick = 0;
+    int tick = 1;
     void clk()
     {
         // The PPU renders 262 scanlines per frame. Each scanline lasts for 341 PPU clock cycles

@@ -43,7 +43,7 @@ public:
 };
 
 // https://www.nesdev.org/wiki/CPU_memory_map
-class Bus {
+class Bus : public Mem {
 private:
 public:
     static const bool READ = 1;
@@ -59,15 +59,17 @@ public:
     std::shared_ptr<Mem> prgRom;
     std::shared_ptr<Mem> ppuMem;
 
-    uint8_t read(uint16_t addr)
+    virtual uint8_t get(uint16_t addr) override
     {
         if (addr < 0x2000) {
             std::fprintf(stderr, "Reading from RAM at %04x (%02x)\n", addr, ram->get(addr & 0x07ff));
             return ram->get(addr & 0x07ff);
         }
         if (addr >= 0x2000 && addr < 0x4000) {
-            std::fprintf(stderr, "Reading from PPU at %04x (%02x)\n", addr, ppuMem->get((addr - 0x2000) & 0x07));
-            return ppuMem->get((addr - 0x2000) & 0x07);
+            // reading form ppu clears the vblank flag, so cache the value
+            auto v = ppuMem->get((addr - 0x2000) & 0x07);
+            std::fprintf(stderr, "Reading from PPU at %04x (%02x)\n", addr, v);
+            return v;
         }
         if (addr >= 0x8000) {
             // std::fprintf(stderr, "Reading from CART at %04x (%02x)\n", addr, prgRom->get(addr - 0x8000));
@@ -79,7 +81,7 @@ public:
         return 0;
     }
 
-    void write(uint16_t addr, uint8_t value)
+    virtual void set(uint16_t addr, uint8_t value) override
     {
         if (addr < 0x2000) {
             std::fprintf(stderr, "Writing to RAM at %04x (%02x)\n", addr, value);
@@ -96,9 +98,9 @@ public:
     void clk()
     {
         if (rw == READ) {
-            data = read(addr);
+            data = get(addr);
         } else {
-            write(addr, data);
+            set(addr, data);
         }
     }
 };
